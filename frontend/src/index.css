@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root {
+    height: 100%;
+  }
+  body {
+    @apply font-sans antialiased text-slate-800 bg-bg-light;
+    -webkit-font-smoothing: antialiased;
+  }
+  *:lang(kn), [lang="kn"] {
+    font-family: 'Noto Sans Kannada', 'Inter', sans-serif;
+  }
+  *:lang(hi), [lang="hi"] {
+    font-family: 'Noto Sans Devanagari', 'Inter', sans-serif;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { background-color: rgba(148,163,184,0.4); border-radius: 8px; }
+  .glass {
+    background: rgba(255, 255, 255, 0.06);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+}
