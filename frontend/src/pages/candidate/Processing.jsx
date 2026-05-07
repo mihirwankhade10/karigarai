@@ -44,31 +44,28 @@ export default function Processing() {
     }
 
     let alive = true;
-    let lastRealStep = -1;
-    let stallCount = 0;       // how many polls returned the same step
-    const STALL_THRESHOLD = 2; // after 2 stalls (6s), simulate progress
+    let lastRealProgress = -1;  // track by progress value, not step
+    let stallCount = 0;
+    const STALL_THRESHOLD = 2;  // after 2 stalls (6s), simulate
 
-    // Simulated progress timer — advances through steps if backend workers aren't running
     let simTimer = null;
     let simStep = 0;
-    const simStepDurations = [2500, 3000, 3500, 2500, 2000]; // ms per step
+    const simStepDurations = [2500, 3000, 3500, 2500, 2000];
 
     function startSimulation(fromStep) {
+      console.log('[processing] Starting simulation from step', fromStep);
       simStep = fromStep;
       const advance = () => {
         if (!alive) return;
         simStep++;
         if (simStep >= STEPS.length) {
-          // Simulation complete — try to fetch real result, else navigate with whatever we have
           setStep(STEPS.length - 1);
           setProgress(100);
           (async () => {
             try {
               const result = await mockApi.getInterviewResult(interviewId);
               if (result) setResult(result);
-            } catch (_) {
-              // No real result available — that's OK for demo
-            }
+            } catch (_) {}
             setTimeout(() => alive && navigate('/result'), 600);
           })();
           return;
@@ -84,25 +81,27 @@ export default function Processing() {
       try {
         const status = await mockApi.getInterviewStatus(interviewId);
         if (!alive) return;
-        if (!status) { stallCount++; return; }
+        if (!status) { stallCount++; checkStall(0); return; }
 
-        const nextStep = STEP_INDEX[status.step] ?? step;
+        const nextStep = STEP_INDEX[status.step] ?? 0;
+        const realProgress = status.progress != null ? Number(status.progress) : 0;
 
-        if (nextStep > lastRealStep) {
-          lastRealStep = nextStep;
+        // Check if backend is actually making progress
+        if (realProgress > lastRealProgress) {
+          lastRealProgress = realProgress;
           stallCount = 0;
-          // Clear simulation if backend is actually progressing
           if (simTimer) { clearTimeout(simTimer); simTimer = null; }
         } else {
           stallCount++;
         }
 
         setStep(nextStep);
-        if (status.progress != null) setProgress(Number(status.progress));
+        if (status.progress != null) setProgress(realProgress);
 
         if (status.status === 'failed') {
           setError(status.error || 'Pipeline failed');
           clearInterval(pollRef.current);
+          return;
         }
         if (status.status === 'complete') {
           clearInterval(pollRef.current);
@@ -112,23 +111,24 @@ export default function Processing() {
             : await mockApi.getInterviewResult(interviewId);
           setResult(result);
           setTimeout(() => navigate('/result'), 400);
+          return;
         }
 
-        // If pipeline is stalled, start simulating
-        if (stallCount >= STALL_THRESHOLD && !simTimer) {
-          clearInterval(pollRef.current);
-          startSimulation(nextStep);
-        }
+        checkStall(nextStep);
       } catch (err) {
         stallCount++;
         console.warn('[processing] poll failed', err?.message);
-        // If we keep failing, start simulation
-        if (stallCount >= STALL_THRESHOLD && !simTimer) {
-          clearInterval(pollRef.current);
-          startSimulation(step);
-        }
+        checkStall(0);
       }
     };
+
+    function checkStall(currentStep) {
+      if (stallCount >= STALL_THRESHOLD && !simTimer) {
+        console.log('[processing] Pipeline stalled at step', currentStep, '- simulating');
+        clearInterval(pollRef.current);
+        startSimulation(currentStep);
+      }
+    }
 
     poll();
     pollRef.current = setInterval(poll, 3000);
@@ -137,7 +137,8 @@ export default function Processing() {
       clearInterval(pollRef.current);
       if (simTimer) clearTimeout(simTimer);
     };
-  }, [interviewId, navigate, setResult, step]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [interviewId]);
 
   return (
     <div className="min-h-screen bg-bg-dark text-white flex items-center justify-center px-6 py-10">
