@@ -15,7 +15,6 @@ const langKeyFor = (uiLang) => {
   return 'questionKn';
 };
 
-// Map UI language to BCP-47 lang tag for speechSynthesis
 const ttsLangFor = (uiLang) => {
   if (uiLang === 'hi' || uiLang === 'hindi') return 'hi-IN';
   if (uiLang === 'en' || uiLang === 'english') return 'en-IN';
@@ -34,34 +33,46 @@ function pickMimeType() {
   return candidates.find((c) => MediaRecorder.isTypeSupported(c)) || null;
 }
 
-/**
- * Cancel ALL ongoing audio/speech immediately.
- */
-function cancelAllSpeech(audioRef) {
-  if (window.speechSynthesis) window.speechSynthesis.cancel();
-  if (audioRef?.current) {
-    audioRef.current.pause();
-    audioRef.current.src = '';
-    audioRef.current = null;
-  }
+/** Stop all audio output immediately */
+function stopAllAudio(audioRef) {
+  try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (_) {}
+  try {
+    if (audioRef?.current) {
+      audioRef.current.pause();
+      audioRef.current.src = '';
+      audioRef.current = null;
+    }
+  } catch (_) {}
 }
 
 /**
- * Speak text via Sarvam AI TTS (backend), fallback to browser speechSynthesis.
- * Accepts an AbortSignal to cancel mid-speech.
+ * Speak text. Tries Sarvam TTS via backend (5s timeout), falls back to browser.
+ * Respects AbortSignal for cancellation.
  */
 async function speakText(text, lang, audioRef, signal) {
   if (!text || signal?.aborted) return;
 
-  // --- Attempt 1: Sarvam AI TTS ---
+  // --- Attempt 1: Sarvam AI TTS (5s timeout — fast fail) ---
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000); // 8s max wait
+
+    // Combine our timeout abort with the external abort signal
+    if (signal) {
+      signal.addEventListener('abort', () => controller.abort(), { once: true });
+    }
+
     const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
     const res = await fetch(`${apiUrl}/api/tts`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text, language: lang }),
-      signal,
+      signal: controller.signal,
     });
+
+    clearTimeout(timeoutId);
+
+    if (signal?.aborted) return;
 
     if (res.ok) {
       const data = await res.json();
@@ -78,7 +89,6 @@ async function speakText(text, lang, audioRef, signal) {
           audio.onended = () => { clearTimeout(fallback); cleanup(); };
           audio.onerror = () => { clearTimeout(fallback); cleanup(); };
 
-          // If aborted while playing
           if (signal) {
             signal.addEventListener('abort', () => {
               clearTimeout(fallback);
@@ -93,8 +103,9 @@ async function speakText(text, lang, audioRef, signal) {
       }
     }
   } catch (err) {
-    if (err.name === 'AbortError') return;
+    if (err.name === 'AbortError' || signal?.aborted) return;
     // Sarvam failed — fall through to browser TTS
+    console.log('[TTS] Sarvam failed, using browser fallback');
   }
 
   if (signal?.aborted) return;
@@ -102,7 +113,7 @@ async function speakText(text, lang, audioRef, signal) {
   // --- Attempt 2: Browser Web Speech API ---
   return new Promise((resolve) => {
     if (typeof window === 'undefined' || !window.speechSynthesis) {
-      setTimeout(resolve, 2800);
+      setTimeout(resolve, 2000);
       return;
     }
     window.speechSynthesis.cancel();
@@ -113,10 +124,11 @@ async function speakText(text, lang, audioRef, signal) {
     utterance.pitch = 1;
 
     const voices = window.speechSynthesis.getVoices();
-    const match = voices.find((v) => v.lang === lang) || voices.find((v) => v.lang.startsWith(lang.split('-')[0]));
+    const match = voices.find((v) => v.lang === lang) ||
+                  voices.find((v) => v.lang.startsWith(lang.split('-')[0]));
     if (match) utterance.voice = match;
 
-    const fallback = setTimeout(() => { window.speechSynthesis.cancel(); resolve(); }, 15000);
+    const fallback = setTimeout(() => { window.speechSynthesis.cancel(); resolve(); }, 12000);
     utterance.onend = () => { clearTimeout(fallback); resolve(); };
     utterance.onerror = () => { clearTimeout(fallback); resolve(); };
 
@@ -146,51 +158,52 @@ export default function Interview() {
 
   const [questions, setLocalQuestions] = useState([]);
   const [idx, setIdx] = useState(0);
-  const [phase, setPhase] = useState('loading'); // loading | speaking | ready | recording | saved | submitting
+  const [phase, setPhase] = useState('loading');
   const [recordStart, setRecordStart] = useState(null);
   const webcamRef = useRef(null);
   const recorderRef = useRef(null);
   const chunksRef = useRef([]);
   const startedAtRef = useRef(null);
   const responsesRef = useRef([]);
-  const audioRef = useRef(null);      // current playing Audio element
-  const ttsAbortRef = useRef(null);    // AbortController for current TTS
-  const isSpeakingRef = useRef(false); // guard against double-fire (StrictMode)
+  const audioRef = useRef(null);
+  const ttsAbortRef = useRef(null);
+  const questionsLoadedRef = useRef(false);   // prevent re-fetching
+  const submittingRef = useRef(false);         // prevent double submit
+  const speakingIdRef = useRef(0);             // unique ID per speaking attempt
 
   // ----- redirect if no candidate ----------------------------------------
   useEffect(() => {
     if (!candidate || !candidateId) navigate('/');
   }, [candidate, candidateId, navigate]);
 
-  // ----- fetch questions for this candidate --------------------------------
+  // ----- fetch questions ONCE for this candidate ---------------------------
   useEffect(() => {
-    if (!candidateId) return;
-    let alive = true;
+    if (!candidateId || questionsLoadedRef.current) return;
+    questionsLoadedRef.current = true; // Prevent StrictMode double-fire
+
     (async () => {
       try {
         const qs = await mockApi.getInterviewQuestions(candidate?.tradeCategory, candidateId);
-        if (!alive) return;
         setLocalQuestions(qs);
         setQuestions(qs);
         setPhase('speaking');
       } catch (err) {
+        questionsLoadedRef.current = false; // allow retry on error
         toast.error(err?.message || t('error'));
       }
     })();
-    return () => { alive = false; };
-  }, [candidateId, candidate?.tradeCategory, setQuestions, t, toast]);
+  }, [candidateId]); // minimal deps — runs once
 
   // ----- TTS: speak the current question -----------------------------------
   useEffect(() => {
     if (phase !== 'speaking' || !questions.length) return;
 
-    // Guard: prevent double-fire from StrictMode
-    if (isSpeakingRef.current) return;
-    isSpeakingRef.current = true;
+    // Increment speaking ID to invalidate any previous speaking attempt
+    const myId = ++speakingIdRef.current;
 
     // Cancel any prior speech immediately
     if (ttsAbortRef.current) ttsAbortRef.current.abort();
-    cancelAllSpeech(audioRef);
+    stopAllAudio(audioRef);
 
     const controller = new AbortController();
     ttsAbortRef.current = controller;
@@ -200,16 +213,15 @@ export default function Interview() {
     const ttsLang = ttsLangFor(lang);
 
     speakText(text, ttsLang, audioRef, controller.signal).then(() => {
-      isSpeakingRef.current = false;
-      if (!controller.signal.aborted) {
+      // Only transition if this is still the active speaking attempt
+      if (speakingIdRef.current === myId && !controller.signal.aborted) {
         setPhase('ready');
       }
     });
 
     return () => {
-      isSpeakingRef.current = false;
       controller.abort();
-      cancelAllSpeech(audioRef);
+      stopAllAudio(audioRef);
     };
   }, [phase, idx, questions, lang]);
 
@@ -252,9 +264,9 @@ export default function Interview() {
 
   // ----- record / stop per question ----------------------------------------
   const startRecord = useCallback(async () => {
-    // Cancel any leftover speech before recording
+    // Cancel any speech before recording
     if (ttsAbortRef.current) ttsAbortRef.current.abort();
-    cancelAllSpeech(audioRef);
+    stopAllAudio(audioRef);
 
     try {
       await ensureRecorder();
@@ -278,14 +290,12 @@ export default function Interview() {
     addResponse({ questionId: questions[idx]?.id, duration: durationSec, recorded: true });
     setPhase('saved');
     toast.success(t('responseSaved'));
-    // Move to next question after brief feedback
-    setTimeout(() => advanceOrSubmit(), 800);
+    setTimeout(() => advanceOrSubmit(), 600);
   }, [recordStart, questions, idx, addResponse, toast, t]);
 
   const skip = useCallback(() => {
-    // Cancel any speech when skipping
     if (ttsAbortRef.current) ttsAbortRef.current.abort();
-    cancelAllSpeech(audioRef);
+    stopAllAudio(audioRef);
 
     responsesRef.current.push({
       questionId: questions[idx]?.id || null,
@@ -299,22 +309,28 @@ export default function Interview() {
   function advanceOrSubmit() {
     // Cancel ALL speech before advancing
     if (ttsAbortRef.current) ttsAbortRef.current.abort();
-    cancelAllSpeech(audioRef);
-    isSpeakingRef.current = false;
+    stopAllAudio(audioRef);
 
     if (idx + 1 < questions.length) {
+      // Use functional update + sync phase change to avoid stale state
       setIdx((i) => i + 1);
-      // Small delay to ensure state updates before triggering speaking
-      setTimeout(() => setPhase('speaking'), 50);
+      setPhase('speaking');
       return;
     }
 
-    // Last question — stop recording and submit.
+    // Last question — submit
     submitInterview();
   }
 
   async function submitInterview() {
+    // Prevent double-submit
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+
     setPhase('submitting');
+    if (ttsAbortRef.current) ttsAbortRef.current.abort();
+    stopAllAudio(audioRef);
+
     const blob = await stopRecorder();
     try {
       const res = await mockApi.submitInterview({
@@ -326,6 +342,7 @@ export default function Interview() {
       if (setInterviewId && res.interviewId) setInterviewId(res.interviewId);
       navigate('/processing');
     } catch (err) {
+      submittingRef.current = false; // allow retry
       toast.error(err?.message || 'Could not submit interview');
       setPhase('ready');
     }
@@ -335,7 +352,7 @@ export default function Interview() {
   useEffect(() => () => {
     try { stopRecorder(); } catch (_) {}
     if (ttsAbortRef.current) ttsAbortRef.current.abort();
-    cancelAllSpeech(audioRef);
+    stopAllAudio(audioRef);
   }, []);
 
   if (phase === 'loading' || !questions.length) {
@@ -402,7 +419,7 @@ export default function Interview() {
 
         <AnimatePresence mode="wait">
           <motion.div
-            key={`${idx}-${phase}`}
+            key={`q-${idx}`}
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}

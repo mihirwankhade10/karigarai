@@ -1,8 +1,25 @@
 // TTS route — proxies to Sarvam AI text-to-speech (bulbul:v3).
 // POST /api/tts  { text, language }
 // Returns { audio } (base64-encoded WAV)
+// Includes in-memory cache to avoid repeated Sarvam calls for the same text.
 
 const axios = require('axios');
+
+// Simple in-memory cache: Map<"text|lang", base64Audio>
+// Keeps last 100 entries to avoid unbounded memory growth.
+const ttsCache = new Map();
+const MAX_CACHE = 100;
+
+function cacheKey(text, lang) { return `${lang}|${text}`; }
+
+function cacheSet(key, audio) {
+  if (ttsCache.size >= MAX_CACHE) {
+    // Evict oldest entry
+    const oldest = ttsCache.keys().next().value;
+    ttsCache.delete(oldest);
+  }
+  ttsCache.set(key, audio);
+}
 
 async function ttsRoutes(fastify) {
   fastify.post('/', {
@@ -24,6 +41,12 @@ async function ttsRoutes(fastify) {
     // Map to BCP-47 if short code given
     const langMap = { en: 'en-IN', hi: 'hi-IN', kn: 'kn-IN' };
     const targetLang = langMap[language] || language;
+
+    // Check cache first
+    const key = cacheKey(text, targetLang);
+    if (ttsCache.has(key)) {
+      return { audio: ttsCache.get(key), cached: true };
+    }
 
     const apiKey = process.env.SARVAM_API_KEY;
     const apiUrl = (process.env.SARVAM_API_URL || 'https://api.sarvam.ai').replace(/\/+$/, '');
@@ -48,7 +71,7 @@ async function ttsRoutes(fastify) {
             'api-subscription-key': apiKey,
             'Content-Type': 'application/json',
           },
-          timeout: 15000,
+          timeout: 25000, // 25s — Sarvam can be slow from US servers
         }
       );
 
@@ -57,9 +80,12 @@ async function ttsRoutes(fastify) {
         return reply.code(500).send({ error: 'No audio returned from Sarvam' });
       }
 
+      // Cache the result
+      cacheSet(key, audio);
+
       return { audio };
     } catch (err) {
-      req.log.error({ err }, 'Sarvam TTS failed');
+      req.log.error({ err: { message: err.message, code: err.code } }, 'Sarvam TTS failed');
       return reply.code(502).send({
         error: 'TTS service error',
         message: err?.response?.data?.message || err.message,
