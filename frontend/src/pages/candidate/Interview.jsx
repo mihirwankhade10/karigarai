@@ -45,23 +45,65 @@ function stopAllAudio(audioRef) {
   } catch (_) {}
 }
 
+// Client-side audio cache: text+lang → base64 audio
+const audioCache = new Map();
+
 /**
- * Speak text. Tries Sarvam TTS via backend (5s timeout), falls back to browser.
- * Respects AbortSignal for cancellation.
+ * Try Sarvam AI directly from the browser (India→India = fast, ~2s).
+ * Returns base64 audio string or null.
  */
-async function speakText(text, lang, audioRef, signal) {
-  if (!text || signal?.aborted) return;
+async function fetchSarvamDirect(text, lang, signal) {
+  const cacheKey = `${lang}|${text}`;
+  if (audioCache.has(cacheKey)) return audioCache.get(cacheKey);
 
-  // --- Attempt 1: Sarvam AI TTS (5s timeout — fast fail) ---
+  const SARVAM_KEY = 'sk_itit18kr_TMNc8ELYIx5LYr7qNjeCAsZs';
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  if (signal) signal.addEventListener('abort', () => controller.abort(), { once: true });
+
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000); // 8s max wait
-
-    // Combine our timeout abort with the external abort signal
-    if (signal) {
-      signal.addEventListener('abort', () => controller.abort(), { once: true });
+    const res = await fetch('https://api.sarvam.ai/text-to-speech', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'api-subscription-key': SARVAM_KEY,
+      },
+      body: JSON.stringify({
+        text,
+        target_language_code: lang,
+        model: 'bulbul:v3',
+        speaker: 'ritu',
+        pace: 0.9,
+        sample_rate: 24000,
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    if (res.ok) {
+      const data = await res.json();
+      const audio = data?.audios?.[0];
+      if (audio) { audioCache.set(cacheKey, audio); return audio; }
     }
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') return null;
+  }
+  return null;
+}
 
+/**
+ * Try Sarvam via backend proxy (browser→Render US→Sarvam India = slow).
+ * Returns base64 audio string or null.
+ */
+async function fetchSarvamBackend(text, lang, signal) {
+  const cacheKey = `BE|${lang}|${text}`;
+  if (audioCache.has(cacheKey)) return audioCache.get(cacheKey);
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
+  if (signal) signal.addEventListener('abort', () => controller.abort(), { once: true });
+
+  try {
     const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
     const res = await fetch(`${apiUrl}/api/tts`, {
       method: 'POST',
@@ -69,48 +111,77 @@ async function speakText(text, lang, audioRef, signal) {
       body: JSON.stringify({ text, language: lang }),
       signal: controller.signal,
     });
-
     clearTimeout(timeoutId);
-
-    if (signal?.aborted) return;
-
     if (res.ok) {
       const data = await res.json();
-      if (data.audio && !signal?.aborted) {
-        const audioSrc = `data:audio/wav;base64,${data.audio}`;
-        return new Promise((resolve) => {
-          if (signal?.aborted) return resolve();
-          const audio = new Audio(audioSrc);
-          audioRef.current = audio;
-
-          const cleanup = () => { audioRef.current = null; resolve(); };
-          const fallback = setTimeout(() => { audio.pause(); cleanup(); }, 20000);
-
-          audio.onended = () => { clearTimeout(fallback); cleanup(); };
-          audio.onerror = () => { clearTimeout(fallback); cleanup(); };
-
-          if (signal) {
-            signal.addEventListener('abort', () => {
-              clearTimeout(fallback);
-              audio.pause();
-              audio.src = '';
-              cleanup();
-            }, { once: true });
-          }
-
-          audio.play().catch(() => { clearTimeout(fallback); cleanup(); });
-        });
-      }
+      if (data?.audio) { audioCache.set(cacheKey, data.audio); return data.audio; }
     }
   } catch (err) {
-    if (err.name === 'AbortError' || signal?.aborted) return;
-    // Sarvam failed — fall through to browser TTS
-    console.log('[TTS] Sarvam failed, using browser fallback');
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') return null;
+  }
+  return null;
+}
+
+/**
+ * Play a base64 audio string. Returns a promise that resolves when done.
+ */
+function playBase64Audio(base64, audioRef, signal) {
+  return new Promise((resolve) => {
+    if (signal?.aborted) return resolve();
+    const audio = new Audio(`data:audio/wav;base64,${base64}`);
+    audioRef.current = audio;
+
+    const cleanup = () => { audioRef.current = null; resolve(); };
+    const fallback = setTimeout(() => { audio.pause(); cleanup(); }, 20000);
+
+    audio.onended = () => { clearTimeout(fallback); cleanup(); };
+    audio.onerror = () => { clearTimeout(fallback); cleanup(); };
+
+    if (signal) {
+      signal.addEventListener('abort', () => {
+        clearTimeout(fallback);
+        audio.pause();
+        audio.src = '';
+        cleanup();
+      }, { once: true });
+    }
+
+    audio.play().catch(() => { clearTimeout(fallback); cleanup(); });
+  });
+}
+
+/**
+ * Speak text. Tries 3 methods in order:
+ *   1. Sarvam DIRECT from browser (India→India, ~2s)  ← NEW, fastest
+ *   2. Sarvam via backend proxy (India→US→India, ~5-25s)
+ *   3. Browser Web Speech API (offline fallback)
+ */
+async function speakText(text, lang, audioRef, signal) {
+  if (!text || signal?.aborted) return;
+
+  // --- Attempt 1: Sarvam DIRECT from browser ---
+  console.log('[TTS] Trying Sarvam direct...');
+  const directAudio = await fetchSarvamDirect(text, lang, signal);
+  if (signal?.aborted) return;
+  if (directAudio) {
+    console.log('[TTS] ✅ Sarvam direct success');
+    return playBase64Audio(directAudio, audioRef, signal);
+  }
+
+  // --- Attempt 2: Sarvam via backend ---
+  console.log('[TTS] Direct failed, trying backend proxy...');
+  const backendAudio = await fetchSarvamBackend(text, lang, signal);
+  if (signal?.aborted) return;
+  if (backendAudio) {
+    console.log('[TTS] ✅ Backend proxy success');
+    return playBase64Audio(backendAudio, audioRef, signal);
   }
 
   if (signal?.aborted) return;
+  console.log('[TTS] Both failed, using browser speech');
 
-  // --- Attempt 2: Browser Web Speech API ---
+  // --- Attempt 3: Browser Web Speech API ---
   return new Promise((resolve) => {
     if (typeof window === 'undefined' || !window.speechSynthesis) {
       setTimeout(resolve, 2000);
