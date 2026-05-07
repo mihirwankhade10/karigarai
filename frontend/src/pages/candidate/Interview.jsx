@@ -15,6 +15,83 @@ const langKeyFor = (uiLang) => {
   return 'questionKn';
 };
 
+// Map UI language to BCP-47 lang tag for speechSynthesis
+const ttsLangFor = (uiLang) => {
+  if (uiLang === 'hi' || uiLang === 'hindi') return 'hi-IN';
+  if (uiLang === 'en' || uiLang === 'english') return 'en-IN';
+  return 'kn-IN';
+};
+
+// Active audio element for cleanup
+let activeAudio = null;
+
+/**
+ * Try Sarvam AI TTS via backend, fall back to browser speechSynthesis.
+ * Returns a Promise that resolves when speaking finishes.
+ */
+async function speakText(text, lang) {
+  if (!text) return;
+
+  // --- Attempt 1: Sarvam AI TTS (natural Indian voice) ---
+  try {
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+    const res = await fetch(`${apiUrl}/api/tts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, language: lang }),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data.audio) {
+        // Sarvam returns base64-encoded WAV audio
+        const audioSrc = `data:audio/wav;base64,${data.audio}`;
+        return new Promise((resolve) => {
+          const audio = new Audio(audioSrc);
+          activeAudio = audio;
+          audio.playbackRate = 1.0;
+          audio.onended = () => { activeAudio = null; resolve(); };
+          audio.onerror = () => { activeAudio = null; resolve(); };
+          // Safety timeout
+          const fallback = setTimeout(() => { audio.pause(); activeAudio = null; resolve(); }, 20000);
+          audio.onended = () => { clearTimeout(fallback); activeAudio = null; resolve(); };
+          audio.play().catch(() => { clearTimeout(fallback); activeAudio = null; resolve(); });
+        });
+      }
+    }
+  } catch (_) {
+    // Sarvam failed — fall through to browser TTS
+  }
+
+  // --- Attempt 2: Browser Web Speech API (fallback) ---
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) {
+      setTimeout(resolve, 2800);
+      return;
+    }
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = lang;
+    utterance.rate = 0.9;
+    utterance.pitch = 1;
+
+    const voices = window.speechSynthesis.getVoices();
+    const match = voices.find((v) => v.lang === lang) || voices.find((v) => v.lang.startsWith(lang.split('-')[0]));
+    if (match) utterance.voice = match;
+
+    const fallback = setTimeout(() => {
+      window.speechSynthesis.cancel();
+      resolve();
+    }, 15000);
+
+    utterance.onend = () => { clearTimeout(fallback); resolve(); };
+    utterance.onerror = () => { clearTimeout(fallback); resolve(); };
+
+    window.speechSynthesis.speak(utterance);
+  });
+}
+
 // Pick the best supported recorder mime-type. Order from most-compatible
 // (Chrome/Edge) to fallbacks. Backend ffmpeg pipeline accepts any of these.
 function pickMimeType() {
@@ -73,12 +150,24 @@ export default function Interview() {
     return () => { alive = false; };
   }, [candidateId, candidate?.tradeCategory, setQuestions, t, toast]);
 
-  // ----- speaking → ready -----------------------------------------------
+  // ----- speaking: read the question aloud via TTS -------------------------
   useEffect(() => {
-    if (phase !== 'speaking') return;
-    const id = setTimeout(() => setPhase('ready'), 2800);
-    return () => clearTimeout(id);
-  }, [phase, idx]);
+    if (phase !== 'speaking' || !questions.length) return;
+    let cancelled = false;
+    const currentQ = questions[idx];
+    const text = currentQ?.[langKeyFor(lang)] || currentQ?.questionEn;
+    const ttsLang = ttsLangFor(lang);
+
+    speakText(text, ttsLang).then(() => {
+      if (!cancelled) setPhase('ready');
+    });
+
+    return () => {
+      cancelled = true;
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
+      if (activeAudio) { activeAudio.pause(); activeAudio = null; }
+    };
+  }, [phase, idx, questions, lang]);
 
   // ----- ensure MediaRecorder is started once on first record ------------
   async function ensureRecorder() {
@@ -181,8 +270,12 @@ export default function Interview() {
     }
   }
 
-  // Stop the recorder if user navigates away mid-interview.
-  useEffect(() => () => { try { stopRecorder(); } catch (_) {} }, []);
+  // Stop the recorder and TTS if user navigates away mid-interview.
+  useEffect(() => () => {
+    try { stopRecorder(); } catch (_) {}
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    if (activeAudio) { activeAudio.pause(); activeAudio = null; }
+  }, []);
 
   if (phase === 'loading' || !questions.length) {
     return (

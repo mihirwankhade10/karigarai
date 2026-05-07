@@ -30,6 +30,7 @@ const authRoutes = require('./routes/auth.routes');
 const candidateRoutes = require('./routes/candidate.routes');
 const interviewRoutes = require('./routes/interview.routes');
 const adminRoutes = require('./routes/admin.routes');
+const ttsRoutes = require('./routes/tts.routes');
 
 async function build() {
   const fastify = Fastify({
@@ -144,6 +145,7 @@ async function build() {
   await fastify.register(candidateRoutes, { prefix: '/api/candidates' });
   await fastify.register(interviewRoutes, { prefix: '/api/interviews' });
   await fastify.register(adminRoutes, { prefix: '/api/admin' });
+  await fastify.register(ttsRoutes, { prefix: '/api/tts' });
 
   // Global error handler \u2014 last resort
   fastify.setErrorHandler((err, req, reply) => {
