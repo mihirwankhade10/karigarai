@@ -34,8 +34,9 @@ export default function Candidates() {
   const [filters, setFilters] = useState(initialFilters);
   const [list, setList] = useState(null);
   const [page, setPage] = useState(1);
-  const shortlistedIds = useAppStore((s) => s.shortlistedIds);
-  const toggleShortlist = useAppStore((s) => s.toggleShortlist);
+  const toggleShortlistLocal = useAppStore((s) => s.toggleShortlist);
+
+  const fetchList = (f) => mockApi.getCandidates(f).then((d) => { setList(d); }).catch(() => setList([]));
 
   useEffect(() => {
     let alive = true;
@@ -44,12 +45,24 @@ export default function Candidates() {
       if (!alive) return;
       setList(d);
       setPage(1);
-    });
+    }).catch(() => alive && setList([]));
     return () => { alive = false; };
   }, [filters]);
 
   const update = (k, v) => setFilters((f) => ({ ...f, [k]: v }));
   const reset = () => setFilters(initialFilters);
+
+  const handleToggleShortlist = async (c) => {
+    const action = c.shortlisted ? 'remove' : 'add';
+    try {
+      await mockApi.shortlistCandidate(c.id, action);
+      toggleShortlistLocal(c.id); // keep Zustand cache in sync for any other consumers
+      fetchList(filters);
+    } catch (err) {
+      // Refresh anyway in case server state changed
+      fetchList(filters);
+    }
+  };
 
   const totalPages = list ? Math.max(1, Math.ceil(list.length / PAGE_SIZE)) : 1;
   const pageRows = useMemo(() => {
@@ -152,7 +165,7 @@ export default function Candidates() {
               <tbody>
                 {pageRows.map((c) => {
                   const sc = scoreColor(c.acsScore);
-                  const isShort = shortlistedIds.includes(c.id);
+                  const isShort = !!c.shortlisted;
                   return (
                     <tr key={c.id} className="border-b border-slate-50 hover:bg-slate-50/60">
                       <td className="px-5 py-3">
@@ -169,7 +182,7 @@ export default function Candidates() {
                       <td className="px-3 py-3 text-slate-700 whitespace-nowrap">{c.phone}</td>
                       <td className="px-3 py-3 text-slate-700">{c.district}</td>
                       <td className="px-3 py-3 text-slate-700">{c.tradeCategory}</td>
-                      <td className="px-3 py-3 text-slate-500 text-xs uppercase">{c.language.slice(0, 3)}</td>
+                      <td className="px-3 py-3 text-slate-500 text-xs uppercase">{(c.language || '').slice(0, 3)}</td>
                       <td className={cn('px-3 py-3 font-semibold tabular-nums', sc.text)}>{c.acsScore}</td>
                       <td className="px-3 py-3">
                         <FitmentBadge category={c.fitmentCategory} size="sm" showIcon={false} />
@@ -189,7 +202,7 @@ export default function Candidates() {
                       <td className="px-5 py-3 text-right">
                         <div className="inline-flex items-center gap-2">
                           <button
-                            onClick={() => toggleShortlist(c.id)}
+                            onClick={() => handleToggleShortlist(c)}
                             title={isShort ? 'Remove from shortlist' : 'Shortlist'}
                             className={cn(
                               'h-8 w-8 inline-flex items-center justify-center rounded-lg transition',

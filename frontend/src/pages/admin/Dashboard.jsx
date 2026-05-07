@@ -23,7 +23,6 @@ import {
   Legend,
 } from 'recharts';
 import { mockApi } from '../../lib/mockApi';
-import { CANDIDATES } from '../../lib/mockData';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { CandidateAvatar } from '../../components/ui/CandidateAvatar';
 import { FitmentBadge } from '../../components/ui/FitmentBadge';
@@ -69,10 +68,14 @@ const StatCard = ({ icon: Icon, label, value, sub, accent, delta }) => (
 
 export default function Dashboard() {
   const [analytics, setAnalytics] = useState(null);
+  const [recent, setRecent] = useState([]);
 
   useEffect(() => {
     let alive = true;
-    mockApi.getAnalytics().then((a) => alive && setAnalytics(a));
+    mockApi.getAnalytics().then((a) => alive && setAnalytics(a)).catch(() => {});
+    mockApi.getCandidates({ page: 1, limit: 10 }).then((rows) => {
+      if (alive) setRecent(rows);
+    }).catch(() => {});
     return () => { alive = false; };
   }, []);
 
@@ -83,10 +86,6 @@ export default function Dashboard() {
       </div>
     );
   }
-
-  const recent = [...CANDIDATES]
-    .sort((a, b) => new Date(b.interviewDate) - new Date(a.interviewDate))
-    .slice(0, 10);
 
   const pieData = analytics.fitmentDistribution.map((d) => ({
     name: fitmentTheme(d.category).label,

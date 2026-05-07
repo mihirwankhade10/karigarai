@@ -64,7 +64,7 @@ export default function Register() {
     }
     setSubmitting(true);
     try {
-      const res = await mockApi.registerCandidate(form);
+      const res = await mockApi.registerCandidate({ ...form, photo });
       setCandidate({ ...form, photo });
       setCandidateId(res.candidateId);
       navigate('/interview');

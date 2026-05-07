@@ -1,0 +1,17 @@
+{
+  "name": "karigarai-worker-proctoring",
+  "version": "1.0.0",
+  "description": "Proctoring worker \u2014 integrity score + violation persistence.",
+  "private": true,
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "bullmq": "^5.21.2",
+    "dotenv": "^16.4.5",
+    "ioredis": "^5.4.1",
+    "pg": "^8.13.1"
+  }
+}

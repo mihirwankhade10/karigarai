@@ -1,0 +1,78 @@
+version: '3.9'
+
+# Six-service KarigarAI stack: 1 API + 5 workers, all on a private bridge network.
+# Each service uses backend/.env for credentials. Build context is the backend/
+# directory itself (the parent of this file) so each Dockerfile can reach
+# shared paths like ../../lib.
+
+networks:
+  karigar-network:
+    driver: bridge
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    container_name: karigarai-api
+    env_file: .env
+    ports:
+      - "3000:3000"
+    networks: [karigar-network]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  stt-worker:
+    build:
+      context: .
+      dockerfile: workers/stt/Dockerfile
+    container_name: karigarai-stt
+    env_file: .env
+    networks: [karigar-network]
+    restart: unless-stopped
+    depends_on: [api]
+
+  assessment-worker:
+    build:
+      context: .
+      dockerfile: workers/assessment/Dockerfile
+    container_name: karigarai-assessment
+    env_file: .env
+    networks: [karigar-network]
+    restart: unless-stopped
+    depends_on: [api]
+
+  fraud-worker:
+    build:
+      context: .
+      dockerfile: workers/fraud/Dockerfile
+    container_name: karigarai-fraud
+    env_file: .env
+    networks: [karigar-network]
+    restart: unless-stopped
+    depends_on: [api]
+
+  fitment-worker:
+    build:
+      context: .
+      dockerfile: workers/fitment/Dockerfile
+    container_name: karigarai-fitment
+    env_file: .env
+    networks: [karigar-network]
+    restart: unless-stopped
+    depends_on: [api]
+
+  proctoring-worker:
+    build:
+      context: .
+      dockerfile: workers/proctoring/Dockerfile
+    container_name: karigarai-proctoring
+    env_file: .env
+    networks: [karigar-network]
+    restart: unless-stopped
+    depends_on: [api]

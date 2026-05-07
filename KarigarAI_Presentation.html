@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KarigarAI - Pitch Deck</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',sans-serif;background:#0a0a0a;color:#fff}
+.slide{width:100%;min-height:100vh;padding:60px 80px;display:flex;flex-direction:column;justify-content:center;page-break-after:always;position:relative;overflow:hidden}
+@media print{.slide{height:100vh;min-height:unset;padding:40px 60px}}
+/* Slide 1 - Title */
+.s1{background:linear-gradient(135deg,#0f172a 0%,#1e1b4b 50%,#312e81 100%)}
+.s1 .tag{font-size:14px;letter-spacing:3px;text-transform:uppercase;color:#818cf8;margin-bottom:20px;font-weight:600}
+.s1 h1{font-size:72px;font-weight:900;background:linear-gradient(135deg,#c7d2fe,#818cf8,#6366f1);-webkit-background-clip:text;-webkit-text-fill-color:transparent;line-height:1.1;margin-bottom:16px}
+.s1 .subtitle{font-size:22px;color:#a5b4fc;font-weight:400;margin-bottom:40px;max-width:700px;line-height:1.5}
+.s1 .kannada{font-size:18px;color:#c4b5fd;font-style:italic;margin-bottom:40px}
+.s1 .meta{font-size:14px;color:#6366f1;margin-top:auto}
+.s1 .meta span{margin-right:30px}
+/* Slide 2 - Problem */
+.s2{background:linear-gradient(135deg,#1a0a0a 0%,#2d1010 100%)}
+.s2 h2{font-size:48px;font-weight:800;color:#fca5a5;margin-bottom:40px}
+.s2 .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:30px;margin-bottom:40px}
+.stat-card{background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);border-radius:16px;padding:30px;text-align:center}
+.stat-card .num{font-size:42px;font-weight:900;color:#f87171}
+.stat-card .label{font-size:14px;color:#fca5a5;margin-top:8px}
+.s2 .points{list-style:none;font-size:18px;color:#fecaca;line-height:2}
+.s2 .points li::before{content:"✕ ";color:#ef4444;font-weight:700}
+/* Slide 3 - Solution */
+.s3{background:linear-gradient(135deg,#042f2e 0%,#064e3b 100%)}
+.s3 h2{font-size:48px;font-weight:800;color:#6ee7b7;margin-bottom:16px}
+.s3 .tagline{font-size:20px;color:#a7f3d0;margin-bottom:40px;font-style:italic}
+.s3 .features{display:grid;grid-template-columns:repeat(2,1fr);gap:24px}
+.feat{background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);border-radius:16px;padding:24px}
+.feat .icon{font-size:28px;margin-bottom:10px}
+.feat h3{font-size:18px;font-weight:700;color:#6ee7b7;margin-bottom:8px}
+.feat p{font-size:14px;color:#a7f3d0;line-height:1.6}
+/* Slide 4 - How It Works */
+.s4{background:linear-gradient(135deg,#0c1222 0%,#1e293b 100%)}
+.s4 h2{font-size:48px;font-weight:800;color:#93c5fd;margin-bottom:40px}
+.pipeline{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap}
+.step{flex:1;min-width:140px;text-align:center;position:relative}
+.step .circle{width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#3b82f6,#6366f1);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;margin:0 auto 12px}
+.step h3{font-size:14px;font-weight:700;color:#93c5fd;margin-bottom:6px}
+.step p{font-size:12px;color:#94a3b8;line-height:1.4}
+.arrow{color:#3b82f6;font-size:24px;margin-top:16px}
+/* Slide 5 - AI Assessment */
+.s5{background:linear-gradient(135deg,#1a0533 0%,#2e1065 100%)}
+.s5 h2{font-size:48px;font-weight:800;color:#c4b5fd;margin-bottom:40px}
+.assess-grid{display:grid;grid-template-columns:1fr 1fr;gap:30px}
+.assess-card{background:rgba(139,92,246,0.1);border:1px solid rgba(139,92,246,0.2);border-radius:16px;padding:28px}
+.assess-card h3{font-size:20px;font-weight:700;color:#a78bfa;margin-bottom:16px}
+.assess-card ul{list-style:none;font-size:15px;color:#ddd6fe;line-height:2}
+.assess-card ul li::before{content:"▸ ";color:#8b5cf6}
+/* Slide 6 - Fitment */
+.s6{background:linear-gradient(135deg,#0a1628 0%,#172554 100%)}
+.s6 h2{font-size:48px;font-weight:800;color:#7dd3fc;margin-bottom:30px}
+.fit-table{width:100%;border-collapse:collapse;margin-bottom:30px}
+.fit-table th{text-align:left;padding:14px 18px;background:rgba(56,189,248,0.15);color:#7dd3fc;font-size:15px;border-bottom:2px solid rgba(56,189,248,0.3)}
+.fit-table td{padding:12px 18px;font-size:14px;color:#bae6fd;border-bottom:1px solid rgba(56,189,248,0.1)}
+.fit-table td:first-child{font-weight:700;font-size:16px}
+/* Slide 7 - Admin Dashboard */
+.s7{background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 100%)}
+.s7 h2{font-size:48px;font-weight:800;color:#67e8f9;margin-bottom:16px}
+.s7 .sub{font-size:18px;color:#a5f3fc;margin-bottom:36px}
+.admin-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+.admin-feat{background:rgba(34,211,238,0.08);border:1px solid rgba(34,211,238,0.2);border-radius:14px;padding:22px}
+.admin-feat .icon{font-size:26px;margin-bottom:8px}
+.admin-feat h3{font-size:16px;font-weight:700;color:#67e8f9;margin-bottom:6px}
+.admin-feat p{font-size:13px;color:#a5f3fc;line-height:1.5}
+/* Slide 8 - Tech Stack */
+.s8{background:linear-gradient(135deg,#111827 0%,#1f2937 100%)}
+.s8 h2{font-size:48px;font-weight:800;color:#fbbf24;margin-bottom:36px}
+.tech-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:20px}
+.tech-item{background:rgba(251,191,36,0.06);border:1px solid rgba(251,191,36,0.15);border-radius:14px;padding:20px;display:flex;gap:16px;align-items:center}
+.tech-item .layer{font-size:13px;font-weight:700;color:#fbbf24;min-width:100px;text-transform:uppercase;letter-spacing:1px}
+.tech-item .val{font-size:15px;color:#fde68a}
+/* Slide 9 - Impact */
+.s9{background:linear-gradient(135deg,#052e16 0%,#14532d 100%)}
+.s9 h2{font-size:48px;font-weight:800;color:#86efac;margin-bottom:40px}
+.impact-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:30px}
+.impact-card{background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.2);border-radius:16px;padding:30px}
+.impact-card .num{font-size:36px;font-weight:900;color:#4ade80;margin-bottom:8px}
+.impact-card p{font-size:15px;color:#bbf7d0;line-height:1.6}
+/* Slide 10 - CTA */
+.s10{background:linear-gradient(135deg,#1e1b4b 0%,#312e81 50%,#4338ca 100%);text-align:center}
+.s10 h2{font-size:56px;font-weight:900;background:linear-gradient(135deg,#e0e7ff,#a5b4fc);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:20px}
+.s10 .quote{font-size:22px;color:#c7d2fe;font-style:italic;max-width:700px;margin:0 auto 40px;line-height:1.6}
+.s10 .links{font-size:16px;color:#818cf8;margin-top:30px;line-height:2}
+.s10 .team{margin-top:40px;font-size:14px;color:#6366f1}
+</style>
+</head>
+<body>
+
+<!-- SLIDE 1: TITLE -->
+<div class="slide s1">
+<div class="tag">AI for Bharat Hackathon • Theme 5: AI SkillFit</div>
+<h1>KarigarAI</h1>
+<div class="subtitle">AI-Powered Multilingual Video Assessment Platform for Workforce Fitment — Built for Karnataka's Skilled Workforce</div>
+<div class="kannada">ಕೌಶಲ್ಯ ನಿಮ್ಮದು, ಅವಕಾಶ ನಮ್ಮದು — Your Skills, Our Opportunity</div>
+<div class="meta">
+<span>📍 Karnataka, India</span>
+<span>🏗️ Karigar = Skilled Craftsman</span>
+<span>🗣️ Kannada-First</span>
+</div>
+</div>
+
+<!-- SLIDE 2: PROBLEM -->
+<div class="slide s2">
+<h2>The Problem</h2>
+<div class="stats">
+<div class="stat-card"><div class="num">10M+</div><div class="label">Blue-collar workers in Karnataka</div></div>
+<div class="stat-card"><div class="num">70%</div><div class="label">Screened via paper forms</div></div>
+<div class="stat-card"><div class="num">31</div><div class="label">Districts with fragmented processes</div></div>
+</div>
+<ul class="points">
+<li>Paper-based screening designed for desk workers, not skilled tradespeople</li>
+<li>Inconsistent interviews — no standardised assessment across districts</li>
+<li>Qualified candidates fall through cracks due to literacy barriers</li>
+<li>Government employment schemes fail to reach the right people</li>
+<li>No fraud detection — duplicate submissions across districts go undetected</li>
+</ul>
+</div>
+
+<!-- SLIDE 3: SOLUTION -->
+<div class="slide s3">
+<h2>Our Solution: KarigarAI</h2>
+<div class="tagline">"Not every skilled worker can write well. But every skilled worker can speak. KarigarAI listens."</div>
+<div class="features">
+<div class="feat"><div class="icon">🗣️</div><h3>Voice-First Assessment</h3><p>Complete the entire interview without typing a single word. Supports Kannada, Hindi & English with dialect handling.</p></div>
+<div class="feat"><div class="icon">📱</div><h3>Mobile-First PWA</h3><p>No app download needed. Works on basic smartphones over 3G. Large buttons, icon navigation, audio guidance.</p></div>
+<div class="feat"><div class="icon">🤖</div><h3>AI-Powered Scoring</h3><p>LLM-based assessment on Relevance, Clarity & Skill Confidence. Lenient on language, strict on substance.</p></div>
+<div class="feat"><div class="icon">🛡️</div><h3>Fraud Detection</h3><p>Face embedding comparison via pgvector, liveness detection, device fingerprinting, cross-district duplicate matching.</p></div>
+</div>
+</div>
+
+<!-- SLIDE 4: HOW IT WORKS -->
+<div class="slide s4">
+<h2>How It Works</h2>
+<div class="pipeline">
+<div class="step"><div class="circle">1</div><h3>Language Select</h3><p>Kannada / Hindi / English</p></div>
+<div class="arrow">→</div>
+<div class="step"><div class="circle">2</div><h3>Register</h3><p>Name, district, trade + selfie capture</p></div>
+<div class="arrow">→</div>
+<div class="step"><div class="circle">3</div><h3>AI Interview</h3><p>5 trade-specific questions via voice</p></div>
+<div class="arrow">→</div>
+<div class="step"><div class="circle">4</div><h3>STT + Scoring</h3><p>Sarvam AI transcription + LLM assessment</p></div>
+<div class="arrow">→</div>
+<div class="step"><div class="circle">5</div><h3>Proctoring</h3><p>Face, gaze & integrity checks</p></div>
+<div class="arrow">→</div>
+<div class="step"><div class="circle">6</div><h3>Fitment</h3><p>Auto-classification + workforce segment</p></div>
+<div class="arrow">→</div>
+<div class="step"><div class="circle">7</div><h3>Dashboard</h3><p>Admin review, shortlist & export</p></div>
+</div>
+</div>
+
+<!-- SLIDE 5: AI ASSESSMENT -->
+<div class="slide s5">
+<h2>AI Assessment Engine</h2>
+<div class="assess-grid">
+<div class="assess-card">
+<h3>🎤 Speech-to-Text</h3>
+<ul>
+<li>Sarvam AI — tuned for Kannada dialects</li>
+<li>Dharwad, Mangalurean, North Karnataka variations</li>
+<li>Handles code-switching (Kannada ↔ Hindi)</li>
+<li>Fallback: OpenAI Whisper</li>
+</ul>
+</div>
+<div class="assess-card">
+<h3>🧠 LLM Scoring (3 Dimensions)</h3>
+<ul>
+<li>Relevance & Completeness — did they answer?</li>
+<li>Communication Clarity — is it coherent?</li>
+<li>Skill Confidence — domain knowledge check</li>
+<li>Rolled into Assessment Confidence Score (ACS)</li>
+</ul>
+</div>
+<div class="assess-card">
+<h3>🛡️ Proctoring Layer</h3>
+<ul>
+<li>Face liveness & continuous presence monitoring</li>
+<li>Tab-switch & fullscreen-exit detection</li>
+<li>Gaze-away & multiple-faces tracking</li>
+<li>Audio quality & video integrity checks</li>
+</ul>
+</div>
+<div class="assess-card">
+<h3>🔍 Fraud Detection</h3>
+<ul>
+<li>Face embedding comparison (pgvector cosine)</li>
+<li>Cross-district duplicate matching</li>
+<li>Device & metadata fingerprinting</li>
+<li>Behavioural anomaly detection</li>
+</ul>
+</div>
+</div>
+</div>
+
+<!-- SLIDE 6: FITMENT CLASSIFICATION -->
+<div class="slide s6">
+<h2>Fitment Classification</h2>
+<table class="fit-table">
+<tr><th>Category</th><th>Criteria</th><th>Next Action</th></tr>
+<tr><td>✅ Job-Ready</td><td>High ACS, clean integrity check</td><td>Direct shortlisting</td></tr>
+<tr><td>📘 Requires Upskilling</td><td>Good potential, skill gaps detected</td><td>Route to training scheme</td></tr>
+<tr><td>🔍 Manual Review</td><td>Borderline score or quality flags</td><td>Human reviewer queue</td></tr>
+<tr><td>⚠️ Low Confidence</td><td>Poor quality submission</td><td>Candidate notified to retry</td></tr>
+<tr><td>🚨 Suspected Fraud</td><td>Duplicate or manipulation detected</td><td>Flagged for investigation</td></tr>
+</table>
+<h3 style="color:#7dd3fc;margin-bottom:16px">Workforce Segments</h3>
+<div style="display:flex;gap:20px">
+<div style="flex:1;background:rgba(56,189,248,0.1);border-radius:12px;padding:18px;text-align:center">
+<div style="font-size:28px">🔧</div>
+<div style="color:#7dd3fc;font-weight:700;margin-top:6px">Blue-Collar</div>
+<div style="color:#bae6fd;font-size:13px">Electrician, Plumber, Welder, Mason, Carpenter</div>
+</div>
+<div style="flex:1;background:rgba(56,189,248,0.1);border-radius:12px;padding:18px;text-align:center">
+<div style="font-size:28px">⚙️</div>
+<div style="color:#7dd3fc;font-weight:700;margin-top:6px">Polytechnic</div>
+<div style="color:#bae6fd;font-size:13px">Machine Operator, Lab Tech, Draughtsman</div>
+</div>
+<div style="flex:1;background:rgba(56,189,248,0.1);border-radius:12px;padding:18px;text-align:center">
+<div style="font-size:28px">👷</div>
+<div style="color:#7dd3fc;font-weight:700;margin-top:6px">Semi-Skilled</div>
+<div style="color:#bae6fd;font-size:13px">Helper, Loader, Packing, Assembly Line</div>
+</div>
+</div>
+</div>
+
+<!-- SLIDE 7: ADMIN DASHBOARD -->
+<div class="slide s7">
+<h2>Admin Dashboard</h2>
+<div class="sub">Role-based web dashboard for EDCS officers and district administrators</div>
+<div class="admin-grid">
+<div class="admin-feat"><div class="icon">📊</div><h3>Analytics</h3><p>Daily intake trends, fitment distribution, language stats, fraud rate charts</p></div>
+<div class="admin-feat"><div class="icon">🔍</div><h3>Smart Filters</h3><p>District, trade, language, fitment category, date range with pagination</p></div>
+<div class="admin-feat"><div class="icon">👤</div><h3>Candidate Cards</h3><p>Photo, ACS score, AI summary, fitment label, interview transcript</p></div>
+<div class="admin-feat"><div class="icon">🚩</div><h3>Fraud Queue</h3><p>Dedicated review interface with confidence scores & resolution actions</p></div>
+<div class="admin-feat"><div class="icon">✅</div><h3>Shortlisting</h3><p>One-click shortlist for job drives, training schemes, verification camps</p></div>
+<div class="admin-feat"><div class="icon">📥</div><h3>CSV Export</h3><p>Export for NCS, NSDC, or state employment portal integration</p></div>
+</div>
+</div>
+
+<!-- SLIDE 8: TECH STACK -->
+<div class="slide s8">
+<h2>Technology Stack</h2>
+<div class="tech-grid">
+<div class="tech-item"><div class="layer">Frontend</div><div class="val">React 18 + Vite + Tailwind CSS (PWA)</div></div>
+<div class="tech-item"><div class="layer">Backend</div><div class="val">Node.js + Fastify + BullMQ</div></div>
+<div class="tech-item"><div class="layer">Database</div><div class="val">PostgreSQL + pgvector (Neon)</div></div>
+<div class="tech-item"><div class="layer">Queue</div><div class="val">Upstash Redis + BullMQ workers</div></div>
+<div class="tech-item"><div class="layer">STT</div><div class="val">Sarvam AI (Kannada) + OpenAI Whisper</div></div>
+<div class="tech-item"><div class="layer">AI/LLM</div><div class="val">LangChain + OpenAI (scoring & summaries)</div></div>
+<div class="tech-item"><div class="layer">Video</div><div class="val">WebRTC + react-webcam</div></div>
+<div class="tech-item"><div class="layer">Face AI</div><div class="val">face-api.js + pgvector embeddings</div></div>
+<div class="tech-item"><div class="layer">Media</div><div class="val">Cloudinary (video & image storage)</div></div>
+<div class="tech-item"><div class="layer">Deploy</div><div class="val">Docker Compose (6 services)</div></div>
+<div class="tech-item"><div class="layer">i18n</div><div class="val">i18next (Kannada / Hindi / English)</div></div>
+<div class="tech-item"><div class="layer">Charts</div><div class="val">Recharts + Zustand state</div></div>
+</div>
+</div>
+
+<!-- SLIDE 9: IMPACT -->
+<div class="slide s9">
+<h2>Impact & Scalability</h2>
+<div class="impact-grid">
+<div class="impact-card"><div class="num">1000+</div><p>Candidates screened per day per district — without adding a single screener</p></div>
+<div class="impact-card"><div class="num">15 min</div><p>Registration to fitment result — entirely on a basic smartphone</p></div>
+<div class="impact-card"><div class="num">31</div><p>Districts covered — unified, standardised assessment across all of Karnataka</p></div>
+<div class="impact-card"><div class="num">3 Languages</div><p>Kannada, Hindi & English — with dialect-level Kannada support</p></div>
+</div>
+<div style="margin-top:30px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.2);border-radius:16px;padding:24px">
+<h3 style="color:#86efac;margin-bottom:12px">Why KarigarAI is Different</h3>
+<ul style="list-style:none;color:#bbf7d0;font-size:15px;line-height:2">
+<li>✦ Kannada-first — dialect handling is core infrastructure, not a toggle</li>
+<li>✦ Voice over text — entire interview without typing a word</li>
+<li>✦ Works on 3G — optimised for low-bandwidth</li>
+<li>✦ Explainable AI — every score comes with a reason</li>
+<li>✦ Government-ready — EDCS workflows, district filtering, data export</li>
+</ul>
+</div>
+</div>
+
+<!-- SLIDE 10: CLOSING -->
+<div class="slide s10">
+<h2>KarigarAI</h2>
+<div class="quote">"KarigarAI doesn't replace the human decision.<br>It makes sure the human decision is worth making."</div>
+<div class="links">
+🔗 GitHub: github.com/mihirwankhade10/karigarai<br>
+🎯 Theme 5: AI SkillFit — Video Assessment for Workforce Fitment
+</div>
+<div class="team">AI for Bharat Hackathon 2026 • Prototype Submission</div>
+</div>
+
+</body>
+</html>

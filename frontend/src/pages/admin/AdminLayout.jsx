@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -7,7 +8,7 @@ import {
   LogOut,
 } from 'lucide-react';
 import { useAppStore } from '../../store/appStore';
-import { CANDIDATES } from '../../lib/mockData';
+import { mockApi } from '../../lib/mockApi';
 import { initials, cn } from '../../lib/utils';
 
 const NAV = [
@@ -22,11 +23,16 @@ export default function AdminLayout() {
   const admin = useAppStore((s) => s.adminUser);
   const logout = useAppStore((s) => s.logoutAdmin);
 
-  const flaggedCount = CANDIDATES.filter(
-    (c) => c.fitmentCategory === 'suspected_fraud'
-  ).length;
+  const [flaggedCount, setFlaggedCount] = useState(0);
 
-  const handleLogout = () => {
+  useEffect(() => {
+    let alive = true;
+    mockApi.getFlaggedCandidates().then((rows) => { if (alive) setFlaggedCount(rows.length); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  const handleLogout = async () => {
+    try { await mockApi.adminLogout(); } catch (_) { /* ignore */ }
     logout();
     navigate('/admin/login');
   };

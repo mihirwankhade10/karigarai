@@ -1,0 +1,24 @@
+{
+  "name": "karigarai-worker-fraud",
+  "version": "1.0.0",
+  "description": "Fraud worker \u2014 face embedding (human.js) + pgvector similarity check.",
+  "private": true,
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@tensorflow/tfjs": "^4.22.0",
+    "@napi-rs/canvas": "^0.1.55",
+    "@vladmandic/human": "^3.3.5",
+    "axios": "^1.7.7",
+    "bullmq": "^5.21.2",
+    "dotenv": "^16.4.5",
+    "ioredis": "^5.4.1",
+    "pg": "^8.13.1"
+  },
+  "optionalDependencies": {
+    "@tensorflow/tfjs-node": "^4.22.0"
+  }
+}

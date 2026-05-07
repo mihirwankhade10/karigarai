@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { SEEDED_SHORTLIST } from '../lib/mockData';
 
 export const useAppStore = create(
   persist(
@@ -9,6 +8,7 @@ export const useAppStore = create(
       selectedLanguage: 'kn',
       candidateData: null,
       candidateId: null,
+      interviewId: null,
       interviewQuestions: [],
       interviewResponses: [],
       interviewResult: null,
@@ -16,12 +16,13 @@ export const useAppStore = create(
       // ============= Admin =============
       adminUser: null,
       isAdminAuthenticated: false,
-      shortlistedIds: SEEDED_SHORTLIST,
+      shortlistedIds: [],
 
-      // ============= Actions — candidate =============
+      // ============= Actions \u2014 candidate =============
       setLanguage: (lang) => set({ selectedLanguage: lang }),
       setCandidate: (data) => set({ candidateData: data }),
       setCandidateId: (id) => set({ candidateId: id }),
+      setInterviewId: (id) => set({ interviewId: id }),
       setInterviewQuestions: (qs) => set({ interviewQuestions: qs, interviewResponses: [] }),
       addInterviewResponse: (resp) =>
         set((s) => ({ interviewResponses: [...s.interviewResponses, resp] })),
@@ -30,12 +31,13 @@ export const useAppStore = create(
         set({
           candidateData: null,
           candidateId: null,
+          interviewId: null,
           interviewQuestions: [],
           interviewResponses: [],
           interviewResult: null,
         }),
 
-      // ============= Actions — admin =============
+      // ============= Actions \u2014 admin =============
       loginAdmin: (user) => set({ adminUser: user, isAdminAuthenticated: true }),
       logoutAdmin: () => set({ adminUser: null, isAdminAuthenticated: false }),
       toggleShortlist: (id) =>

@@ -3,7 +3,6 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { ToastProvider } from './components/ui/Toast';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { ProtectedRoute } from './components/ui/ProtectedRoute';
-import { DemoBadge } from './components/ui/DemoBadge';
 
 import LanguageSelect from './pages/candidate/LanguageSelect';
 import Register from './pages/candidate/Register';
@@ -76,7 +75,6 @@ export default function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </AnimatePresence>
-        <DemoBadge />
       </ToastProvider>
     </ErrorBoundary>
   );

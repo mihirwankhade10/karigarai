@@ -1,0 +1,17 @@
+{
+  "name": "karigarai-worker-fitment",
+  "version": "1.0.0",
+  "description": "Fitment worker \u2014 dual-key Redis coordinator + classification.",
+  "private": true,
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "bullmq": "^5.21.2",
+    "dotenv": "^16.4.5",
+    "ioredis": "^5.4.1",
+    "pg": "^8.13.1"
+  }
+}

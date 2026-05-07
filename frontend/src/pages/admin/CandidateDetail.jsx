@@ -34,11 +34,12 @@ export default function CandidateDetail() {
   const [tab, setTab] = useState('overview');
   const [summaryLang, setSummaryLang] = useState('en');
   const [candidate, setCandidate] = useState(null);
-  const shortlistedIds = useAppStore((s) => s.shortlistedIds);
-  const toggleShortlist = useAppStore((s) => s.toggleShortlist);
+  const toggleShortlistLocal = useAppStore((s) => s.toggleShortlist);
 
   const fetchDetail = () => {
-    mockApi.getCandidateDetail(id).then((c) => setCandidate(c));
+    mockApi.getCandidateDetail(id).then((c) => setCandidate(c)).catch((err) => {
+      toast.error(err?.message || 'Failed to load candidate');
+    });
   };
 
   useEffect(() => {
@@ -54,20 +55,27 @@ export default function CandidateDetail() {
     );
   }
 
-  const isShort = shortlistedIds.includes(candidate.id);
+  const isShort = !!candidate.shortlisted;
   const theme = fitmentTheme(candidate.fitmentCategory);
 
   const handleShortlist = async () => {
-    toggleShortlist(candidate.id);
-    await mockApi.shortlistCandidate(candidate.id, isShort ? 'remove' : 'add');
-    toast.success(isShort ? 'Removed from shortlist' : 'Added to shortlist');
+    try {
+      await mockApi.shortlistCandidate(candidate.id, isShort ? 'remove' : 'add');
+      toggleShortlistLocal(candidate.id); // keep Zustand cache in sync
+      toast.success(isShort ? 'Removed from shortlist' : 'Added to shortlist');
+      fetchDetail();
+    } catch (err) {
+      toast.error(err?.message || 'Failed');
+    }
   };
 
   const handleResolveFlag = async (resolution) => {
-    const r = await mockApi.resolveFlag(candidate.id, resolution);
-    if (r.success) {
-      setCandidate(r.candidate);
+    try {
+      await mockApi.resolveFlag(candidate.id, resolution);
       toast.success(resolution === 'confirm' ? 'Flagged as fraud' : 'Flag cleared');
+      fetchDetail();
+    } catch (err) {
+      toast.error(err?.message || 'Failed to resolve');
     }
   };
 
@@ -105,7 +113,7 @@ export default function CandidateDetail() {
                 <Row
                   icon={Languages}
                   label="Language"
-                  value={candidate.language.charAt(0).toUpperCase() + candidate.language.slice(1)}
+                  value={candidate.language ? candidate.language.charAt(0).toUpperCase() + candidate.language.slice(1) : '\u2014'}
                 />
                 <Row icon={Calendar} label="Interview" value={formatDate(candidate.interviewDate)} />
               </div>

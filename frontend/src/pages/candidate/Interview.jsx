@@ -15,6 +15,19 @@ const langKeyFor = (uiLang) => {
   return 'questionKn';
 };
 
+// Pick the best supported recorder mime-type. Order from most-compatible
+// (Chrome/Edge) to fallbacks. Backend ffmpeg pipeline accepts any of these.
+function pickMimeType() {
+  const candidates = [
+    'video/webm;codecs=vp9,opus',
+    'video/webm;codecs=vp8,opus',
+    'video/webm',
+    'video/mp4',
+  ];
+  if (typeof MediaRecorder === 'undefined') return null;
+  return candidates.find((c) => MediaRecorder.isTypeSupported(c)) || null;
+}
+
 export default function Interview() {
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -23,72 +36,153 @@ export default function Interview() {
   const candidateId = useAppStore((s) => s.candidateId);
   const setQuestions = useAppStore((s) => s.setInterviewQuestions);
   const addResponse = useAppStore((s) => s.addInterviewResponse);
+  const setInterviewId = useAppStore((s) => s.setInterviewId);
   const lang = useAppStore((s) => s.selectedLanguage);
 
   const [questions, setLocalQuestions] = useState([]);
   const [idx, setIdx] = useState(0);
-  const [phase, setPhase] = useState('loading'); // loading | speaking | ready | recording | saved
+  const [phase, setPhase] = useState('loading'); // loading | speaking | ready | recording | saved | submitting
   const [recordStart, setRecordStart] = useState(null);
   const webcamRef = useRef(null);
+  const recorderRef = useRef(null);
+  const chunksRef = useRef([]);
+  const startedAtRef = useRef(null); // performance.now() when MediaRecorder.start() was called
+  const responsesRef = useRef([]);   // [{questionId, startSec, durationSec, skipped}]
 
-  // No candidate data? send back to start
+  // ----- redirect if no candidate ----------------------------------------
   useEffect(() => {
-    if (!candidate || !candidateId) {
-      navigate('/');
-    }
+    if (!candidate || !candidateId) navigate('/');
   }, [candidate, candidateId, navigate]);
 
-  // Fetch questions
+  // ----- fetch the 12 generated questions for this candidate -------------
   useEffect(() => {
-    if (!candidate?.tradeCategory) return;
+    if (!candidateId) return;
     let alive = true;
     (async () => {
-      const qs = await mockApi.getInterviewQuestions(candidate.tradeCategory);
-      if (!alive) return;
-      setLocalQuestions(qs);
-      setQuestions(qs);
-      setPhase('speaking');
+      try {
+        // Pass candidateId so mockApi.getInterviewQuestions hits /api/candidates/:id/questions
+        const qs = await mockApi.getInterviewQuestions(candidate?.tradeCategory, candidateId);
+        if (!alive) return;
+        setLocalQuestions(qs);
+        setQuestions(qs);
+        setPhase('speaking');
+      } catch (err) {
+        toast.error(err?.message || t('error'));
+      }
     })();
     return () => { alive = false; };
-  }, [candidate?.tradeCategory, setQuestions]);
+  }, [candidateId, candidate?.tradeCategory, setQuestions, t, toast]);
 
-  // Speaking phase → ready phase after 3s
+  // ----- speaking → ready -----------------------------------------------
   useEffect(() => {
     if (phase !== 'speaking') return;
-    const t = setTimeout(() => setPhase('ready'), 2800);
-    return () => clearTimeout(t);
+    const id = setTimeout(() => setPhase('ready'), 2800);
+    return () => clearTimeout(id);
   }, [phase, idx]);
 
-  const startRecord = () => {
-    setRecordStart(Date.now());
+  // ----- ensure MediaRecorder is started once on first record ------------
+  async function ensureRecorder() {
+    if (recorderRef.current && recorderRef.current.state !== 'inactive') return;
+
+    // Get fresh stream with audio so the MediaRecorder captures sound.
+    // (react-webcam's <Webcam audio={false}> doesn't include audio in its stream.)
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user' },
+      audio: true,
+    });
+
+    const mimeType = pickMimeType();
+    const opts = mimeType ? { mimeType } : {};
+    const rec = new MediaRecorder(stream, opts);
+    chunksRef.current = [];
+    rec.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
+    };
+    rec.start(1000); // emit a chunk every second so we never lose data on mid-stream stop
+    startedAtRef.current = performance.now();
+    recorderRef.current = rec;
+  }
+
+  function stopRecorder() {
+    return new Promise((resolve) => {
+      const rec = recorderRef.current;
+      if (!rec) return resolve(null);
+      const tracks = rec.stream.getTracks();
+      rec.onstop = () => {
+        for (const trk of tracks) trk.stop();
+        const blob = new Blob(chunksRef.current, { type: rec.mimeType || 'video/webm' });
+        chunksRef.current = [];
+        recorderRef.current = null;
+        resolve(blob);
+      };
+      try { rec.stop(); } catch (_) { resolve(null); }
+    });
+  }
+
+  // ----- per-question record/stop ----------------------------------------
+  const startRecord = async () => {
+    try {
+      await ensureRecorder();
+    } catch (err) {
+      toast.error(err?.message || 'Microphone/camera access denied');
+      return;
+    }
+    setRecordStart(performance.now());
     setPhase('recording');
   };
 
-  const stopRecord = () => {
-    const duration = Math.max(1, Math.round((Date.now() - recordStart) / 1000));
-    addResponse({ questionId: questions[idx]?.id, duration, recorded: true });
+  const stopRecord = async () => {
+    const startSec = ((recordStart ?? performance.now()) - startedAtRef.current) / 1000;
+    const durationSec = Math.max(1, Math.round((performance.now() - recordStart) / 1000));
+    responsesRef.current.push({
+      questionId: questions[idx]?.id || null,
+      startSec: Math.max(0, Math.round(startSec)),
+      durationSec,
+      skipped: false,
+    });
+    addResponse({ questionId: questions[idx]?.id, duration: durationSec, recorded: true });
     setPhase('saved');
     toast.success(t('responseSaved'));
-    setTimeout(() => {
-      if (idx + 1 >= questions.length) {
-        // submit + go to processing
-        mockApi.submitInterview({ candidateId }).then(() => navigate('/processing'));
-      } else {
-        setIdx((i) => i + 1);
-        setPhase('speaking');
-      }
-    }, 1500);
+    setTimeout(() => advanceOrSubmit(), 1200);
   };
 
   const skip = () => {
+    responsesRef.current.push({
+      questionId: questions[idx]?.id || null,
+      durationSec: 0,
+      skipped: true,
+    });
     addResponse({ questionId: questions[idx]?.id, duration: 0, recorded: false, skipped: true });
-    if (idx + 1 >= questions.length) {
-      mockApi.submitInterview({ candidateId }).then(() => navigate('/processing'));
-    } else {
+    advanceOrSubmit();
+  };
+
+  async function advanceOrSubmit() {
+    if (idx + 1 < questions.length) {
       setIdx((i) => i + 1);
       setPhase('speaking');
+      return;
     }
-  };
+
+    // Last question \u2014 stop recording and submit.
+    setPhase('submitting');
+    const blob = await stopRecorder();
+    try {
+      const res = await mockApi.submitInterview({
+        candidateId,
+        video: blob,
+        videoFilename: 'interview.webm',
+        proctoringSummary: null, // future: tab-switch / face-presence events
+      });
+      if (setInterviewId && res.interviewId) setInterviewId(res.interviewId);
+      navigate('/processing');
+    } catch (err) {
+      toast.error(err?.message || 'Could not submit interview');
+      setPhase('saved'); // allow retry by clicking next? simplest: go back to ready
+    }
+  }
+
+  // Stop the recorder if user navigates away mid-interview.
+  useEffect(() => () => { try { stopRecorder(); } catch (_) {} }, []);
 
   if (phase === 'loading' || !questions.length) {
     return (
@@ -100,7 +194,7 @@ export default function Interview() {
 
   const currentQ = questions[idx];
   const qText = currentQ?.[langKeyFor(lang)] || currentQ?.questionEn;
-  const progressPct = ((idx + (phase === 'saved' ? 1 : 0)) / questions.length) * 100;
+  const progressPct = ((idx + (phase === 'saved' || phase === 'submitting' ? 1 : 0)) / questions.length) * 100;
 
   return (
     <div className="min-h-screen bg-bg-dark text-white flex flex-col">
@@ -171,6 +265,9 @@ export default function Interview() {
                 {t('recording')}
               </p>
             )}
+            {phase === 'submitting' && (
+              <p className="text-xs text-info mt-3">Uploading your interview...</p>
+            )}
           </motion.div>
         </AnimatePresence>
       </div>
@@ -183,9 +280,7 @@ export default function Interview() {
             audio={false}
             videoConstraints={{ facingMode: 'user' }}
             className="h-full w-full object-cover"
-            onUserMediaError={() => {
-              // silent fallback — show placeholder
-            }}
+            onUserMediaError={() => { /* silent */ }}
           />
           {phase === 'recording' && (
             <div className="absolute top-2 left-2 inline-flex items-center gap-1 rounded-full bg-danger px-2 py-0.5 text-[10px] font-bold text-white">
@@ -199,14 +294,23 @@ export default function Interview() {
       <div className="mt-auto pb-8 px-6">
         <div className="flex flex-col items-center gap-4">
           <AnimatePresence mode="wait">
-            {phase === 'saved' ? (
+            {phase === 'submitting' ? (
+              <motion.div
+                key="submitting"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="inline-flex items-center gap-2 text-info font-semibold"
+              >
+                <LoadingSpinner size={18} /> Submitting...
+              </motion.div>
+            ) : phase === 'saved' ? (
               <motion.div
                 key="saved"
                 initial={{ scale: 0.8, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 className="inline-flex items-center gap-2 text-success font-semibold"
               >
-                <CheckCircle2 className="h-5 w-5" /> {t('responseSaved')} ✓
+                <CheckCircle2 className="h-5 w-5" /> {t('responseSaved')} \u2713
               </motion.div>
             ) : (
               <motion.button
@@ -230,11 +334,13 @@ export default function Interview() {
             )}
           </AnimatePresence>
           <p className="text-xs text-slate-400">
-            {phase === 'recording' ? t('tapToStop') : t('tapToRecord')}
+            {phase === 'recording' ? t('tapToStop') : phase === 'submitting' ? '' : t('tapToRecord')}
           </p>
-          <button onClick={skip} className="text-xs text-slate-400 underline-offset-4 hover:underline">
-            {t('skip')}
-          </button>
+          {phase !== 'submitting' && (
+            <button onClick={skip} className="text-xs text-slate-400 underline-offset-4 hover:underline">
+              {t('skip')}
+            </button>
+          )}
         </div>
 
         {/* Progress */}

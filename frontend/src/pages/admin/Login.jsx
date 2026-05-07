@@ -14,7 +14,7 @@ export default function Login() {
   const login = useAppStore((s) => s.loginAdmin);
   const toast = useToast();
   const [email, setEmail] = useState('admin@edcs.kar.gov.in');
-  const [password, setPassword] = useState('admin123');
+  const [password, setPassword] = useState('Admin@123');
   const [submitting, setSubmitting] = useState(false);
 
   const submit = async (e) => {
@@ -67,7 +67,7 @@ export default function Login() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="pl-10"
-                placeholder="admin123"
+                placeholder="Admin@123"
               />
             </div>
           </div>
@@ -77,7 +77,7 @@ export default function Login() {
         </form>
 
         <p className="text-center text-xs text-slate-500 mt-6">
-          Demo credentials prefilled · admin@edcs.kar.gov.in / admin123
+          Default credentials · admin@edcs.kar.gov.in / Admin@123
         </p>
       </motion.div>
     </div>
