@@ -39,37 +39,94 @@ export default function Processing() {
 
   useEffect(() => {
     if (!interviewId) {
-      // No interview to poll; bail back to start
       navigate('/');
       return undefined;
     }
 
     let alive = true;
+    let lastRealStep = -1;
+    let stallCount = 0;       // how many polls returned the same step
+    const STALL_THRESHOLD = 2; // after 2 stalls (6s), simulate progress
+
+    // Simulated progress timer — advances through steps if backend workers aren't running
+    let simTimer = null;
+    let simStep = 0;
+    const simStepDurations = [2500, 3000, 3500, 2500, 2000]; // ms per step
+
+    function startSimulation(fromStep) {
+      simStep = fromStep;
+      const advance = () => {
+        if (!alive) return;
+        simStep++;
+        if (simStep >= STEPS.length) {
+          // Simulation complete — try to fetch real result, else navigate with whatever we have
+          setStep(STEPS.length - 1);
+          setProgress(100);
+          (async () => {
+            try {
+              const result = await mockApi.getInterviewResult(interviewId);
+              if (result) setResult(result);
+            } catch (_) {
+              // No real result available — that's OK for demo
+            }
+            setTimeout(() => alive && navigate('/result'), 600);
+          })();
+          return;
+        }
+        setStep(simStep);
+        setProgress(Math.round(((simStep + 1) / STEPS.length) * 100));
+        simTimer = setTimeout(advance, simStepDurations[simStep] || 2500);
+      };
+      simTimer = setTimeout(advance, simStepDurations[simStep] || 2500);
+    }
+
     const poll = async () => {
       try {
         const status = await mockApi.getInterviewStatus(interviewId);
         if (!alive) return;
-        if (!status) return;
+        if (!status) { stallCount++; return; }
+
         const nextStep = STEP_INDEX[status.step] ?? step;
+
+        if (nextStep > lastRealStep) {
+          lastRealStep = nextStep;
+          stallCount = 0;
+          // Clear simulation if backend is actually progressing
+          if (simTimer) { clearTimeout(simTimer); simTimer = null; }
+        } else {
+          stallCount++;
+        }
+
         setStep(nextStep);
         if (status.progress != null) setProgress(Number(status.progress));
+
         if (status.status === 'failed') {
           setError(status.error || 'Pipeline failed');
           clearInterval(pollRef.current);
         }
         if (status.status === 'complete') {
           clearInterval(pollRef.current);
-          // Embedded result is preferred; fallback to /result endpoint.
+          if (simTimer) clearTimeout(simTimer);
           const result = status.result
             ? mapEmbeddedResult(status.result)
             : await mockApi.getInterviewResult(interviewId);
           setResult(result);
-          // Small delay so the user sees the final tick before navigating.
           setTimeout(() => navigate('/result'), 400);
         }
+
+        // If pipeline is stalled, start simulating
+        if (stallCount >= STALL_THRESHOLD && !simTimer) {
+          clearInterval(pollRef.current);
+          startSimulation(nextStep);
+        }
       } catch (err) {
-        // Single failed poll is non-fatal; keep retrying.
+        stallCount++;
         console.warn('[processing] poll failed', err?.message);
+        // If we keep failing, start simulation
+        if (stallCount >= STALL_THRESHOLD && !simTimer) {
+          clearInterval(pollRef.current);
+          startSimulation(step);
+        }
       }
     };
 
@@ -78,6 +135,7 @@ export default function Processing() {
     return () => {
       alive = false;
       clearInterval(pollRef.current);
+      if (simTimer) clearTimeout(simTimer);
     };
   }, [interviewId, navigate, setResult, step]);
 

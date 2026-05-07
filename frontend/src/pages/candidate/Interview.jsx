@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Webcam from 'react-webcam';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -22,48 +22,84 @@ const ttsLangFor = (uiLang) => {
   return 'kn-IN';
 };
 
-// Active audio element for cleanup
-let activeAudio = null;
+// Pick the best supported recorder mime-type.
+function pickMimeType() {
+  const candidates = [
+    'video/webm;codecs=vp9,opus',
+    'video/webm;codecs=vp8,opus',
+    'video/webm',
+    'video/mp4',
+  ];
+  if (typeof MediaRecorder === 'undefined') return null;
+  return candidates.find((c) => MediaRecorder.isTypeSupported(c)) || null;
+}
 
 /**
- * Try Sarvam AI TTS via backend, fall back to browser speechSynthesis.
- * Returns a Promise that resolves when speaking finishes.
+ * Cancel ALL ongoing audio/speech immediately.
  */
-async function speakText(text, lang) {
-  if (!text) return;
+function cancelAllSpeech(audioRef) {
+  if (window.speechSynthesis) window.speechSynthesis.cancel();
+  if (audioRef?.current) {
+    audioRef.current.pause();
+    audioRef.current.src = '';
+    audioRef.current = null;
+  }
+}
 
-  // --- Attempt 1: Sarvam AI TTS (natural Indian voice) ---
+/**
+ * Speak text via Sarvam AI TTS (backend), fallback to browser speechSynthesis.
+ * Accepts an AbortSignal to cancel mid-speech.
+ */
+async function speakText(text, lang, audioRef, signal) {
+  if (!text || signal?.aborted) return;
+
+  // --- Attempt 1: Sarvam AI TTS ---
   try {
     const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
     const res = await fetch(`${apiUrl}/api/tts`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text, language: lang }),
+      signal,
     });
 
     if (res.ok) {
       const data = await res.json();
-      if (data.audio) {
-        // Sarvam returns base64-encoded WAV audio
+      if (data.audio && !signal?.aborted) {
         const audioSrc = `data:audio/wav;base64,${data.audio}`;
         return new Promise((resolve) => {
+          if (signal?.aborted) return resolve();
           const audio = new Audio(audioSrc);
-          activeAudio = audio;
-          audio.playbackRate = 1.0;
-          audio.onended = () => { activeAudio = null; resolve(); };
-          audio.onerror = () => { activeAudio = null; resolve(); };
-          // Safety timeout
-          const fallback = setTimeout(() => { audio.pause(); activeAudio = null; resolve(); }, 20000);
-          audio.onended = () => { clearTimeout(fallback); activeAudio = null; resolve(); };
-          audio.play().catch(() => { clearTimeout(fallback); activeAudio = null; resolve(); });
+          audioRef.current = audio;
+
+          const cleanup = () => { audioRef.current = null; resolve(); };
+          const fallback = setTimeout(() => { audio.pause(); cleanup(); }, 20000);
+
+          audio.onended = () => { clearTimeout(fallback); cleanup(); };
+          audio.onerror = () => { clearTimeout(fallback); cleanup(); };
+
+          // If aborted while playing
+          if (signal) {
+            signal.addEventListener('abort', () => {
+              clearTimeout(fallback);
+              audio.pause();
+              audio.src = '';
+              cleanup();
+            }, { once: true });
+          }
+
+          audio.play().catch(() => { clearTimeout(fallback); cleanup(); });
         });
       }
     }
-  } catch (_) {
+  } catch (err) {
+    if (err.name === 'AbortError') return;
     // Sarvam failed — fall through to browser TTS
   }
 
-  // --- Attempt 2: Browser Web Speech API (fallback) ---
+  if (signal?.aborted) return;
+
+  // --- Attempt 2: Browser Web Speech API ---
   return new Promise((resolve) => {
     if (typeof window === 'undefined' || !window.speechSynthesis) {
       setTimeout(resolve, 2800);
@@ -80,30 +116,22 @@ async function speakText(text, lang) {
     const match = voices.find((v) => v.lang === lang) || voices.find((v) => v.lang.startsWith(lang.split('-')[0]));
     if (match) utterance.voice = match;
 
-    const fallback = setTimeout(() => {
-      window.speechSynthesis.cancel();
-      resolve();
-    }, 15000);
-
+    const fallback = setTimeout(() => { window.speechSynthesis.cancel(); resolve(); }, 15000);
     utterance.onend = () => { clearTimeout(fallback); resolve(); };
     utterance.onerror = () => { clearTimeout(fallback); resolve(); };
+
+    if (signal) {
+      signal.addEventListener('abort', () => {
+        clearTimeout(fallback);
+        window.speechSynthesis.cancel();
+        resolve();
+      }, { once: true });
+    }
 
     window.speechSynthesis.speak(utterance);
   });
 }
 
-// Pick the best supported recorder mime-type. Order from most-compatible
-// (Chrome/Edge) to fallbacks. Backend ffmpeg pipeline accepts any of these.
-function pickMimeType() {
-  const candidates = [
-    'video/webm;codecs=vp9,opus',
-    'video/webm;codecs=vp8,opus',
-    'video/webm',
-    'video/mp4',
-  ];
-  if (typeof MediaRecorder === 'undefined') return null;
-  return candidates.find((c) => MediaRecorder.isTypeSupported(c)) || null;
-}
 
 export default function Interview() {
   const navigate = useNavigate();
@@ -123,21 +151,23 @@ export default function Interview() {
   const webcamRef = useRef(null);
   const recorderRef = useRef(null);
   const chunksRef = useRef([]);
-  const startedAtRef = useRef(null); // performance.now() when MediaRecorder.start() was called
-  const responsesRef = useRef([]);   // [{questionId, startSec, durationSec, skipped}]
+  const startedAtRef = useRef(null);
+  const responsesRef = useRef([]);
+  const audioRef = useRef(null);      // current playing Audio element
+  const ttsAbortRef = useRef(null);    // AbortController for current TTS
+  const isSpeakingRef = useRef(false); // guard against double-fire (StrictMode)
 
   // ----- redirect if no candidate ----------------------------------------
   useEffect(() => {
     if (!candidate || !candidateId) navigate('/');
   }, [candidate, candidateId, navigate]);
 
-  // ----- fetch the 12 generated questions for this candidate -------------
+  // ----- fetch questions for this candidate --------------------------------
   useEffect(() => {
     if (!candidateId) return;
     let alive = true;
     (async () => {
       try {
-        // Pass candidateId so mockApi.getInterviewQuestions hits /api/candidates/:id/questions
         const qs = await mockApi.getInterviewQuestions(candidate?.tradeCategory, candidateId);
         if (!alive) return;
         setLocalQuestions(qs);
@@ -150,31 +180,43 @@ export default function Interview() {
     return () => { alive = false; };
   }, [candidateId, candidate?.tradeCategory, setQuestions, t, toast]);
 
-  // ----- speaking: read the question aloud via TTS -------------------------
+  // ----- TTS: speak the current question -----------------------------------
   useEffect(() => {
     if (phase !== 'speaking' || !questions.length) return;
-    let cancelled = false;
+
+    // Guard: prevent double-fire from StrictMode
+    if (isSpeakingRef.current) return;
+    isSpeakingRef.current = true;
+
+    // Cancel any prior speech immediately
+    if (ttsAbortRef.current) ttsAbortRef.current.abort();
+    cancelAllSpeech(audioRef);
+
+    const controller = new AbortController();
+    ttsAbortRef.current = controller;
+
     const currentQ = questions[idx];
     const text = currentQ?.[langKeyFor(lang)] || currentQ?.questionEn;
     const ttsLang = ttsLangFor(lang);
 
-    speakText(text, ttsLang).then(() => {
-      if (!cancelled) setPhase('ready');
+    speakText(text, ttsLang, audioRef, controller.signal).then(() => {
+      isSpeakingRef.current = false;
+      if (!controller.signal.aborted) {
+        setPhase('ready');
+      }
     });
 
     return () => {
-      cancelled = true;
-      if (window.speechSynthesis) window.speechSynthesis.cancel();
-      if (activeAudio) { activeAudio.pause(); activeAudio = null; }
+      isSpeakingRef.current = false;
+      controller.abort();
+      cancelAllSpeech(audioRef);
     };
   }, [phase, idx, questions, lang]);
 
-  // ----- ensure MediaRecorder is started once on first record ------------
+  // ----- MediaRecorder management ------------------------------------------
   async function ensureRecorder() {
     if (recorderRef.current && recorderRef.current.state !== 'inactive') return;
 
-    // Get fresh stream with audio so the MediaRecorder captures sound.
-    // (react-webcam's <Webcam audio={false}> doesn't include audio in its stream.)
     const stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: 'user' },
       audio: true,
@@ -187,7 +229,7 @@ export default function Interview() {
     rec.ondataavailable = (e) => {
       if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
     };
-    rec.start(1000); // emit a chunk every second so we never lose data on mid-stream stop
+    rec.start(1000);
     startedAtRef.current = performance.now();
     recorderRef.current = rec;
   }
@@ -208,8 +250,12 @@ export default function Interview() {
     });
   }
 
-  // ----- per-question record/stop ----------------------------------------
-  const startRecord = async () => {
+  // ----- record / stop per question ----------------------------------------
+  const startRecord = useCallback(async () => {
+    // Cancel any leftover speech before recording
+    if (ttsAbortRef.current) ttsAbortRef.current.abort();
+    cancelAllSpeech(audioRef);
+
     try {
       await ensureRecorder();
     } catch (err) {
@@ -218,9 +264,9 @@ export default function Interview() {
     }
     setRecordStart(performance.now());
     setPhase('recording');
-  };
+  }, [toast]);
 
-  const stopRecord = async () => {
+  const stopRecord = useCallback(async () => {
     const startSec = ((recordStart ?? performance.now()) - startedAtRef.current) / 1000;
     const durationSec = Math.max(1, Math.round((performance.now() - recordStart) / 1000));
     responsesRef.current.push({
@@ -232,10 +278,15 @@ export default function Interview() {
     addResponse({ questionId: questions[idx]?.id, duration: durationSec, recorded: true });
     setPhase('saved');
     toast.success(t('responseSaved'));
-    setTimeout(() => advanceOrSubmit(), 1200);
-  };
+    // Move to next question after brief feedback
+    setTimeout(() => advanceOrSubmit(), 800);
+  }, [recordStart, questions, idx, addResponse, toast, t]);
 
-  const skip = () => {
+  const skip = useCallback(() => {
+    // Cancel any speech when skipping
+    if (ttsAbortRef.current) ttsAbortRef.current.abort();
+    cancelAllSpeech(audioRef);
+
     responsesRef.current.push({
       questionId: questions[idx]?.id || null,
       durationSec: 0,
@@ -243,16 +294,26 @@ export default function Interview() {
     });
     addResponse({ questionId: questions[idx]?.id, duration: 0, recorded: false, skipped: true });
     advanceOrSubmit();
-  };
+  }, [questions, idx, addResponse]);
 
-  async function advanceOrSubmit() {
+  function advanceOrSubmit() {
+    // Cancel ALL speech before advancing
+    if (ttsAbortRef.current) ttsAbortRef.current.abort();
+    cancelAllSpeech(audioRef);
+    isSpeakingRef.current = false;
+
     if (idx + 1 < questions.length) {
       setIdx((i) => i + 1);
-      setPhase('speaking');
+      // Small delay to ensure state updates before triggering speaking
+      setTimeout(() => setPhase('speaking'), 50);
       return;
     }
 
-    // Last question \u2014 stop recording and submit.
+    // Last question — stop recording and submit.
+    submitInterview();
+  }
+
+  async function submitInterview() {
     setPhase('submitting');
     const blob = await stopRecorder();
     try {
@@ -260,21 +321,21 @@ export default function Interview() {
         candidateId,
         video: blob,
         videoFilename: 'interview.webm',
-        proctoringSummary: null, // future: tab-switch / face-presence events
+        proctoringSummary: null,
       });
       if (setInterviewId && res.interviewId) setInterviewId(res.interviewId);
       navigate('/processing');
     } catch (err) {
       toast.error(err?.message || 'Could not submit interview');
-      setPhase('saved'); // allow retry by clicking next? simplest: go back to ready
+      setPhase('ready');
     }
   }
 
-  // Stop the recorder and TTS if user navigates away mid-interview.
+  // Cleanup on unmount
   useEffect(() => () => {
     try { stopRecorder(); } catch (_) {}
-    if (window.speechSynthesis) window.speechSynthesis.cancel();
-    if (activeAudio) { activeAudio.pause(); activeAudio = null; }
+    if (ttsAbortRef.current) ttsAbortRef.current.abort();
+    cancelAllSpeech(audioRef);
   }, []);
 
   if (phase === 'loading' || !questions.length) {
@@ -341,11 +402,11 @@ export default function Interview() {
 
         <AnimatePresence mode="wait">
           <motion.div
-            key={idx + phase}
+            key={`${idx}-${phase}`}
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.4 }}
+            transition={{ duration: 0.3 }}
             className="text-center min-h-[80px]"
           >
             <p className="text-xl font-semibold leading-relaxed text-white">{qText}</p>
@@ -403,7 +464,7 @@ export default function Interview() {
                 animate={{ scale: 1, opacity: 1 }}
                 className="inline-flex items-center gap-2 text-success font-semibold"
               >
-                <CheckCircle2 className="h-5 w-5" /> {t('responseSaved')} \u2713
+                <CheckCircle2 className="h-5 w-5" /> {t('responseSaved')} ✓
               </motion.div>
             ) : (
               <motion.button
